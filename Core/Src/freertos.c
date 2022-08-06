@@ -40,7 +40,7 @@
 
 typedef struct {
 	
-	float							controlTemperature;							//0-1024 ℃
+	float							controlTemperature;							//0-1024 'C
 
 	uint8_t						endCondition;
 	
@@ -83,6 +83,18 @@ typedef struct {
 #define SPRAY_MODE															01U
 #define STEAM_SPRAY_MODE												02U
 
+//输出口配置宏定义
+#define OUTPUT_OVEN_HEATER											5			//烤箱加热丝输出口
+#define OUTPUT_WATER_HEATER											7			//水箱加热丝输出口
+#define OUTPUT_OVEN_SPRAY_VALVE									14		//烤箱箱体喷水阀门
+#define OUTPUT_STEAM_TANK_VALVE									15		//蒸汽水箱进水阀门
+#define OUTPUT_BREATHER_VALVE										16		//烤箱箱体通气阀门
+
+//热电偶配置宏定义
+#define TEMP_OVEN_MAIN													0			//烤箱温度计
+#define TEMP_STEAM_TANK													1			//水箱温度计
+
+#define WATER_TEMP															95.0	//水箱加热温度
 
 /* USER CODE END PD */
 
@@ -340,11 +352,9 @@ void UsartTask(void const * argument)
 						HAL_GPIO_TogglePin(GPIOF, GPIO_PIN_14);		//Communication complete, Toggle LED
 						
 						G_UART2_TXBUFFER[0] = data_event;
-//						UART2_SEND_DATA(G_UART2_TXBUFFER, TXBUFFERSIZE);
 						for(uint8_t i = 0; i < data_length; i++)
 						{
 							G_UART2_TXBUFFER[0] = G_RX_BUFF_HANDLE[i];
-//							UART2_SEND_DATA(G_UART2_TXBUFFER, TXBUFFERSIZE);
 						}
 					}
 				}
@@ -367,18 +377,18 @@ void UsartTask(void const * argument)
 				//test motor
 				case 0x71: 
 				{
-					MOTOR_CONTROL(MOTOR_ENABLE, MOTOR_DIR_CW, 0x0300);
-					osDelay(3000);
-					MOTOR_CONTROL(MOTOR_ENABLE, MOTOR_DIR_CW, 0x0500);
-					osDelay(3000);
 					MOTOR_CONTROL(MOTOR_ENABLE, MOTOR_DIR_CW, 0x0700);
-					osDelay(3000);
+					osDelay(5000);
+					MOTOR_CONTROL(MOTOR_ENABLE, MOTOR_DIR_CW, 0x0600);
+					osDelay(5000);
 					MOTOR_CONTROL(MOTOR_ENABLE, MOTOR_DIR_CW, 0x0500);
-					osDelay(3000);
+					osDelay(5000);
+					MOTOR_CONTROL(MOTOR_ENABLE, MOTOR_DIR_CW, 0x0400);
+					osDelay(5000);
 					MOTOR_CONTROL(MOTOR_ENABLE, MOTOR_DIR_CW, 0x0300);
-					osDelay(3000);
+					osDelay(5000);
 					MOTOR_CONTROL(MOTOR_DISABLE, MOTOR_DIR_CW, 0x0100);
-					osDelay(3000);
+					osDelay(5000);
 					//speed 100-300 is same?
 				}break;
 				
@@ -462,10 +472,10 @@ void UsartTask(void const * argument)
 				{
 					osDelay(200);
 					printf("end, open motor and air valve.\n");
-					GPIO_OUTPUT_OPEN(16);
+					GPIO_OUTPUT_OPEN(OUTPUT_BREATHER_VALVE);
 					MOTOR_CONTROL(MOTOR_ENABLE, MOTOR_DIR_CW, 0x0600);
 					osDelay(30000);
-					GPIO_OUTPUT_CLOSE(16);
+					GPIO_OUTPUT_CLOSE(OUTPUT_BREATHER_VALVE);
 					MOTOR_CONTROL(MOTOR_DISABLE, MOTOR_DIR_CW, 0x0100);
 					printf("end.\n");
 				}break;
@@ -501,7 +511,7 @@ void UsartTask(void const * argument)
 						printf("cannot find T2, please check\n");
 					}
 					//打开进水阀
-					GPIO_OUTPUT_OPEN(15);
+					GPIO_OUTPUT_OPEN(OUTPUT_STEAM_TANK_VALVE);
 					while(1)
 					{
 						if(!GPIO_INPUT(1))
@@ -509,7 +519,7 @@ void UsartTask(void const * argument)
 							osDelay(10);
 							if(!GPIO_INPUT(1))
 							{
-								GPIO_OUTPUT_CLOSE(15);
+								GPIO_OUTPUT_CLOSE(OUTPUT_STEAM_TANK_VALVE);
 								break;
 							}
 						}
@@ -541,7 +551,7 @@ void SpiTask(void const * argument)
   /* Infinite loop */
   for(;;)
   {
-		for(uint8_t i = 0; i < 3; i++)
+		for(uint8_t i = 0; i < 8; i++)
 		{
 			max6675_data[i] = SPI_MAX6675(i+1);
 			if(max6675_data[i] & 0x04)	//检测不到热电偶
@@ -552,13 +562,13 @@ void SpiTask(void const * argument)
 			{
 				spi_temperature[i] = (float) (((max6675_data[i] >> 3) & ~(0xF << 12)) * 0.25f);
 			}
-			osDelay(100);
+			osDelay(50);
 		}
 		if(input_tx_flag == 1)
 		{
-			printf("spi_temperature:%f\n", spi_temperature[0]);
+			printf("spi_temperature:%f,  %f,  %f\n", spi_temperature[0], spi_temperature[1], spi_temperature[2]);
 		}
-    osDelay(600);
+    osDelay(100);
   }
   /* USER CODE END SpiTask */
 }
@@ -583,13 +593,13 @@ void InputTask(void const * argument)
 		{
 			input_data[i] = GPIO_INPUT(i+1);
 		}
-		if(input_tx_flag == 1)
-		{
-			printf("gpio: %u%u%u%u%u %u%u%u%u%u %u%u%u%u%u %u%u%u%u%u\n", input_data[0], input_data[1], input_data[2], input_data[3], input_data[4],
-																																		input_data[5], input_data[6], input_data[7], input_data[8], input_data[9],
-																																		input_data[10],input_data[11],input_data[12],input_data[13],input_data[14],
-																																		input_data[15],input_data[16],input_data[17],input_data[18],input_data[19]);
-		}
+		// if(input_tx_flag == 1)
+		// {
+		// 	printf("gpio: %u%u%u%u%u %u%u%u%u%u %u%u%u%u%u %u%u%u%u%u\n", input_data[0], input_data[1], input_data[2], input_data[3], input_data[4],
+		// 																																input_data[5], input_data[6], input_data[7], input_data[8], input_data[9],
+		// 																																input_data[10],input_data[11],input_data[12],input_data[13],input_data[14],
+		// 																																input_data[15],input_data[16],input_data[17],input_data[18],input_data[19]);
+		// }
     osDelay(1000);
   }
   /* USER CODE END InputTask */
@@ -669,13 +679,18 @@ void TempTask(void const * argument)
 	
 	uint8_t temp_control_queue_flag = 0;
 	uint8_t temp_end_flag = 0;
+	uint32_t temp_time_counts;
 	uint8_t temp_motor_counts;
+	uint16_t temp_motor_speed;
 	uint8_t temp_motor_status;
+	uint8_t moshi;
+	
 	OVEN_TempHandleTypeDef temp_ovenTemperatureHandle;
 	
   /* Infinite loop */
   for(;;)
   {
+		//接收队列消息
 		if(tempQueueHandle != NULL)
 		{
       if( xQueueReceive( tempQueueHandle,
@@ -685,9 +700,13 @@ void TempTask(void const * argument)
 				temp_control_queue_flag = 1;
       }
 		}
+		
+		//若接收到了队列消息，则开始控制
 		if(temp_control_queue_flag == 1)
 		{
+			temp_time_counts = 0;
 			temp_motor_status = 0;
+			temp_motor_speed = 0x0700;
 			temp_motor_counts = 0;
 			switch (temp_ovenTemperatureHandle.endCondition)
 			{
@@ -698,108 +717,124 @@ void TempTask(void const * argument)
 					osDelay(200);
 					printf("End by time,start controling...\n");
 					osDelay(200);
-					for(uint8_t i = 0; i < temp_ovenTemperatureHandle.endTimeSecond; i++)
+					for(temp_time_counts = 0; temp_time_counts < temp_ovenTemperatureHandle.endTimeSecond; temp_time_counts++)
 					{
 						//temperature control
-						if(spi_temperature[0] < temp_ovenTemperatureHandle.controlTemperature)
+						if(spi_temperature[TEMP_OVEN_MAIN] < temp_ovenTemperatureHandle.controlTemperature)
 						{
-							GPIO_OUTPUT_OPEN(11);
+							GPIO_OUTPUT_OPEN(OUTPUT_OVEN_HEATER);
 						}
 						else
 						{
-							GPIO_OUTPUT_CLOSE(11);
+							GPIO_OUTPUT_CLOSE(OUTPUT_OVEN_HEATER);
 						}
-						printf("Current temperature is: %f.\n", spi_temperature[0]);
+						printf("Current temperature is: %.2f, %.2f, %.2f.\n", spi_temperature[TEMP_OVEN_MAIN], spi_temperature[TEMP_STEAM_TANK], spi_temperature[2]);
 						//motor control
+						
+						//1.motor speed
+						//风机控制模式，1代表蒸的时候风机减速的模式
+						//2代表风机正常烤的时候不减速的模式
+						moshi = 1;
+						temp_motor_speed = 0x0600;
+						
+						if(moshi == 1)
+						{
+							if((temp_time_counts % 615) < 255)
+							{
+								temp_motor_speed = 0x600;
+							}
+							if(255 <= (temp_time_counts % 615) && (temp_time_counts % 615) < 315)
+							{
+								temp_motor_speed = 0x600;
+							}
+							else if(315 <= (temp_time_counts % 615) && (temp_time_counts % 615) < 375)
+							{
+								temp_motor_speed = 0x500;
+							}
+							else if(375 <= (temp_time_counts % 615) && (temp_time_counts % 615) < 435)
+							{
+								temp_motor_speed = 0x400;
+							}
+							else if(435 <= (temp_time_counts % 615) && (temp_time_counts % 615) < 495)
+							{
+								temp_motor_speed = 0x300;
+							}
+							else if(495 <= (temp_time_counts % 615) && (temp_time_counts % 615) < 615)
+							{
+								temp_motor_speed = 0x200;
+							}
+						}
+						else if(moshi == 2)
+						{
+								temp_motor_speed = 0x600;
+						}
+						
+						//2.motor direction
 						if(temp_motor_status == 0)
 						{
-							if(temp_motor_counts < 4)
+							if(temp_motor_counts < 112)
 							{
-								MOTOR_CONTROL(MOTOR_DISABLE, MOTOR_DIR_CW, 0x0100);
-								GPIO_OUTPUT_OPEN(16);
+								MOTOR_CONTROL(MOTOR_ENABLE, MOTOR_DIR_CW, temp_motor_speed);
 								temp_motor_counts++;
 							}
 							else
 							{
-								MOTOR_CONTROL(MOTOR_DISABLE, MOTOR_DIR_CW, 0x0100);
-								GPIO_OUTPUT_OPEN(16);
+								MOTOR_CONTROL(MOTOR_ENABLE, MOTOR_DIR_CW, temp_motor_speed);
 								temp_motor_status = 1;
 								temp_motor_counts = 0;
 							}
 						}
 						else if(temp_motor_status == 1)
 						{
-							if(temp_motor_counts < 49)
+							if(temp_motor_counts < 6)
 							{
-								MOTOR_CONTROL(MOTOR_ENABLE, MOTOR_DIR_CW, 0x0500);
-								GPIO_OUTPUT_CLOSE(16);
+								MOTOR_CONTROL(MOTOR_DISABLE, MOTOR_DIR_CCW, 0x0100);
 								temp_motor_counts++;
 							}
 							else
 							{
-								MOTOR_CONTROL(MOTOR_ENABLE, MOTOR_DIR_CW, 0x0500);
-								GPIO_OUTPUT_CLOSE(16);
+								MOTOR_CONTROL(MOTOR_DISABLE, MOTOR_DIR_CCW, 0x0100);
 								temp_motor_status = 2;
 								temp_motor_counts = 0;
 							}
 						}
 						else if(temp_motor_status == 2)
 						{
-							if(temp_motor_counts < 9)
+							if(temp_motor_counts < 112)
 							{
-								MOTOR_CONTROL(MOTOR_DISABLE, MOTOR_DIR_CW, 0x0100);
-								GPIO_OUTPUT_OPEN(16);
+								MOTOR_CONTROL(MOTOR_ENABLE, MOTOR_DIR_CCW, temp_motor_speed);
 								temp_motor_counts++;
 							}
 							else
 							{
-								MOTOR_CONTROL(MOTOR_DISABLE, MOTOR_DIR_CW, 0x0100);
-								GPIO_OUTPUT_OPEN(16);
+								MOTOR_CONTROL(MOTOR_ENABLE, MOTOR_DIR_CCW, temp_motor_speed);
 								temp_motor_status = 3;
 								temp_motor_counts = 0;
 							}
 						}
 						else if(temp_motor_status == 3)
 						{
-							if(temp_motor_counts < 49)
-							{
-								MOTOR_CONTROL(MOTOR_ENABLE, MOTOR_DIR_CCW, 0x0500);
-								GPIO_OUTPUT_CLOSE(16);
-								temp_motor_counts++;
-							}
-							else
-							{
-								MOTOR_CONTROL(MOTOR_ENABLE, MOTOR_DIR_CCW, 0x0500);
-								GPIO_OUTPUT_CLOSE(16);
-								temp_motor_status = 4;
-								temp_motor_counts = 0;
-							}
-						}
-						else if(temp_motor_status == 4)
-						{
-							if(temp_motor_counts < 4)
+							if(temp_motor_counts < 6)
 							{
 								MOTOR_CONTROL(MOTOR_DISABLE, MOTOR_DIR_CW, 0x0100);
-								GPIO_OUTPUT_OPEN(16);
 								temp_motor_counts++;
 							}
 							else
 							{
 								MOTOR_CONTROL(MOTOR_DISABLE, MOTOR_DIR_CW, 0x0100);
-								GPIO_OUTPUT_OPEN(16);
 								temp_motor_status = 0;
 								temp_motor_counts = 0;
 							}
 						}
 						osDelay(1000);
 					}
-					GPIO_OUTPUT_CLOSE(11);
-					GPIO_OUTPUT_CLOSE(16);
+					GPIO_OUTPUT_CLOSE(OUTPUT_OVEN_HEATER);
 					MOTOR_CONTROL(MOTOR_DISABLE, MOTOR_DIR_CW, 0x0100);
 					temp_control_queue_flag = 0;
 					printf("Temperature control end.\n");
 				}break;
 				
+				//预热
 				case END_BY_OVEN_TEMPERATURE:
 				{
 					temp_end_flag = 0;
@@ -808,33 +843,61 @@ void TempTask(void const * argument)
 					osDelay(200);
 					printf("End by oven teamperature,start controling...\n");
 					osDelay(200);
+					//打开风机
+					MOTOR_CONTROL(MOTOR_ENABLE, MOTOR_DIR_CW, 0x0700);
+					osDelay(3000);
+					//喷水
+					GPIO_OUTPUT_OPEN(OUTPUT_OVEN_SPRAY_VALVE);
+					osDelay(1000);
+					GPIO_OUTPUT_CLOSE(OUTPUT_OVEN_SPRAY_VALVE);
+					osDelay(1000);
+					//开始加热烤箱
 					while(temp_end_flag == 0)
 					{
-						if(spi_temperature[0] >= temp_ovenTemperatureHandle.controlTemperature)
+						MOTOR_CONTROL(MOTOR_ENABLE, MOTOR_DIR_CW, 0x0700);
+						if(spi_temperature[TEMP_OVEN_MAIN] >= temp_ovenTemperatureHandle.controlTemperature - 30.0)
 						{
 							osDelay(50);
-							printf("1Current temperature is: %f.\n", spi_temperature[0]);
-							GPIO_OUTPUT_OPEN(11);
-							osDelay(1000);
-							if(spi_temperature[0] >= temp_ovenTemperatureHandle.controlTemperature)
+							printf("1Current temperature is: %f.\n", spi_temperature[TEMP_OVEN_MAIN]);
+							GPIO_OUTPUT_OPEN(OUTPUT_OVEN_HEATER);
+							osDelay(950);
+							if(spi_temperature[TEMP_OVEN_MAIN] >= temp_ovenTemperatureHandle.controlTemperature - 30.0)
 							{
 								osDelay(50);
-								printf("2Current temperature is: %f.\n", spi_temperature[0]);
-								GPIO_OUTPUT_CLOSE(11);
+								printf("2Current temperature is: %f.\n", spi_temperature[TEMP_OVEN_MAIN]);
+								GPIO_OUTPUT_CLOSE(OUTPUT_OVEN_HEATER);
 								temp_end_flag = 1;
 							}
 						}
 						else
 						{
 							osDelay(50);
-							printf("Current temperature is: %f.\n", spi_temperature[0]);
-							GPIO_OUTPUT_OPEN(11);
-							osDelay(1000);
+							printf("Current temperature is: %f.\n", spi_temperature[TEMP_OVEN_MAIN]);
+							GPIO_OUTPUT_OPEN(OUTPUT_OVEN_HEATER);
+							osDelay(950);
 						}
 					}
 					osDelay(50);
 					printf("Temperature control end.\n");
-					GPIO_OUTPUT_CLOSE(11);
+					GPIO_OUTPUT_CLOSE(OUTPUT_OVEN_HEATER);
+					//开始加热水箱
+					osDelay(200);
+					printf("Preheat water,start controling...\n");
+					osDelay(200);
+					while(spi_temperature[TEMP_STEAM_TANK] < WATER_TEMP)
+					{
+						printf("Current water temperature is: %f.\n", spi_temperature[TEMP_STEAM_TANK]);
+						MOTOR_CONTROL(MOTOR_ENABLE, MOTOR_DIR_CW, 0x0700);
+						GPIO_OUTPUT_OPEN(OUTPUT_WATER_HEATER);
+						osDelay(1000);
+					}
+					osDelay(200);
+					printf("Preheat water control end.\n");
+					
+					//预热结束
+					GPIO_OUTPUT_CLOSE(OUTPUT_OVEN_HEATER);
+					GPIO_OUTPUT_CLOSE(OUTPUT_WATER_HEATER);
+					MOTOR_CONTROL(MOTOR_DISABLE, MOTOR_DIR_CW, 0x0100);
 					temp_control_queue_flag = 0;
 				}break;
 				
@@ -857,6 +920,7 @@ void HumiTask(void const * argument)
 {
   /* USER CODE BEGIN HumiTask */
 	
+	uint32_t humi_time_counts;
 	uint8_t humi_control_queue_flag = 0;
 	uint8_t humi_pwm_count = 0;
 	OVEN_HumiHandleTypeDef humi_ovenHumidityHandle;
@@ -874,8 +938,11 @@ void HumiTask(void const * argument)
 				humi_control_queue_flag = 1;
       }
 		}
+
 		if(humi_control_queue_flag == 1)
 		{
+			humi_time_counts = 0;
+			
 			switch (humi_ovenHumidityHandle.controlMode)
 			{
 				
@@ -884,21 +951,21 @@ void HumiTask(void const * argument)
 					osDelay(200);
 					printf("steam mode,start controling...\n");
 					osDelay(200);
-					for(uint8_t i = 0; i < humi_ovenHumidityHandle.endTimeSecond; i++)
+					for(humi_time_counts = 0; humi_time_counts < humi_ovenHumidityHandle.endTimeSecond; humi_time_counts++)
 					{
-						if(spi_temperature[1] < 40)
+						if(spi_temperature[TEMP_STEAM_TANK] < WATER_TEMP)
 						{
-							GPIO_OUTPUT_OPEN(12);
+							GPIO_OUTPUT_OPEN(OUTPUT_WATER_HEATER);
 						}
 						else
 						{
-							GPIO_OUTPUT_CLOSE(12);
+							GPIO_OUTPUT_CLOSE(OUTPUT_WATER_HEATER);
 						}
-						printf("Current steam temperature is: %f.\n", spi_temperature[1]);
+						printf("Current steam temperature is: %f.\n", spi_temperature[TEMP_STEAM_TANK]);
 						osDelay(1000);
 					}
 					printf("Humidity control end.\n");
-					GPIO_OUTPUT_CLOSE(12);
+					GPIO_OUTPUT_CLOSE(OUTPUT_WATER_HEATER);
 					humi_control_queue_flag = 0;
 				}break;
 				
@@ -909,27 +976,26 @@ void HumiTask(void const * argument)
 					osDelay(200);
 					printf("spray mode,start controling...\n");
 					osDelay(200);
-					humi_pwm_count = 0;
-					for(uint8_t i = 0; i < humi_ovenHumidityHandle.endTimeSecond * 2; i++)
+					humi_pwm_count = 20 - humi_ovenHumidityHandle.controlHumidity;
+					if(humi_pwm_count == 0) humi_pwm_count = 1;
+					for(humi_time_counts = 0; humi_time_counts < humi_ovenHumidityHandle.endTimeSecond; humi_time_counts++)
 					{
-						if(humi_pwm_count < humi_ovenHumidityHandle.controlHumidity)
+						//若湿度为10（100%），则每隔10秒喷0.75秒水；湿度为1（10%），则每隔19秒喷0.75秒水
+						if(humi_time_counts % humi_pwm_count == 0)
 						{
-							GPIO_OUTPUT_OPEN(14);
-							humi_pwm_count ++;
+							GPIO_OUTPUT_OPEN(OUTPUT_OVEN_SPRAY_VALVE);
+							osDelay(750);
+							GPIO_OUTPUT_CLOSE(OUTPUT_OVEN_SPRAY_VALVE);
+							osDelay(250);
 						}
 						else
 						{
-							GPIO_OUTPUT_CLOSE(14);
-							humi_pwm_count ++;
+							GPIO_OUTPUT_CLOSE(OUTPUT_OVEN_SPRAY_VALVE);
+							osDelay(1000);
 						}
-						if(humi_pwm_count == 10)
-						{
-							humi_pwm_count = 0;
-						}
-						osDelay(500);
 					}
 					printf("Humidity control end.\n");
-					GPIO_OUTPUT_CLOSE(14);
+					GPIO_OUTPUT_CLOSE(OUTPUT_OVEN_SPRAY_VALVE);
 					humi_control_queue_flag = 0;
 				}break;
 				
@@ -940,42 +1006,41 @@ void HumiTask(void const * argument)
 					osDelay(200);
 					printf("steam spray mode,start controling...\n");
 					osDelay(200);
-					humi_pwm_count = 0;
-					for(uint8_t i = 0; i < humi_ovenHumidityHandle.endTimeSecond * 2; i++)
+					humi_control_queue_flag = 0;
+					for(humi_time_counts = 0; humi_time_counts < humi_ovenHumidityHandle.endTimeSecond; humi_time_counts++)
 					{
-						//steam
-						if(spi_temperature[1] < 40)
+						//加热蒸汽水箱
+						if(spi_temperature[TEMP_STEAM_TANK] < WATER_TEMP)
 						{
-							GPIO_OUTPUT_OPEN(12);
+							GPIO_OUTPUT_OPEN(OUTPUT_WATER_HEATER);
 						}
 						else
 						{
-							GPIO_OUTPUT_CLOSE(12);
+							GPIO_OUTPUT_CLOSE(OUTPUT_WATER_HEATER);
 						}
-						if(i % 2)
+						printf("Current steam temperature is: %f.\n", spi_temperature[TEMP_STEAM_TANK]);
+						
+						//烤箱内喷水
+						humi_pwm_count = 0;
+						//若湿度为10（100%），则每隔10秒喷0.5秒水；湿度为1（10%），则每隔19秒喷0.5秒水
+						if(humi_pwm_count < 20 - humi_ovenHumidityHandle.controlHumidity)
 						{
-							printf("Current steam temperature is: %f.\n", spi_temperature[1]);
-						}
-						//spray
-						if(humi_pwm_count < humi_ovenHumidityHandle.controlHumidity)
-						{
-							GPIO_OUTPUT_OPEN(14);
+							GPIO_OUTPUT_CLOSE(OUTPUT_OVEN_SPRAY_VALVE);
 							humi_pwm_count ++;
+							osDelay(1000);
 						}
 						else
 						{
-							GPIO_OUTPUT_CLOSE(14);
-							humi_pwm_count ++;
-						}
-						if(humi_pwm_count == 10)
-						{
+							GPIO_OUTPUT_OPEN(OUTPUT_OVEN_SPRAY_VALVE);
+							osDelay(500);
+							GPIO_OUTPUT_CLOSE(OUTPUT_OVEN_SPRAY_VALVE);
+							osDelay(500);
 							humi_pwm_count = 0;
 						}
-						osDelay(500);
 					}
 					printf("Humidity control end.\n");
-					GPIO_OUTPUT_CLOSE(12);
-					GPIO_OUTPUT_CLOSE(14);
+					GPIO_OUTPUT_CLOSE(OUTPUT_WATER_HEATER);
+					GPIO_OUTPUT_CLOSE(OUTPUT_OVEN_SPRAY_VALVE);
 					humi_control_queue_flag = 0;
 				}break;
 			}
